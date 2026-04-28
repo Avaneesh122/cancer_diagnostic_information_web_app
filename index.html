@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Cancer Pathology Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #111;
+            color: white;
+        }
+
+        #viewer {
+            width: 100vw;
+            height: 90vh;
+            background: #000;
+        }
+
+        .controls {
+            padding: 15px;
+            background: #2c3e50;
+            border-bottom: 2px solid #1abc9c;
+        }
+
+        button {
+            padding: 8px 15px;
+            cursor: pointer;
+            background: #1abc9c;
+            border: none;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #16a085;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="controls">
+        <input type="file" id="slide-upload" accept=".svs,.tif,.tiff" />
+        <button onclick="uploadAndView()">Upload & Analyze</button>
+        <span id="status" style="margin-left: 15px; font-weight: bold; color: #f1c40f;">Ready for slide upload...</span>
+    </div>
+
+    <div id="viewer"></div>
+
+    <script>
+        // Initialize the viewer container
+        let viewer = OpenSeadragon({
+            id: "viewer",
+            prefixUrl: "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/",
+            showNavigator: true,
+            animationTime: 0.5,
+            blendTime: 0.1,
+            maxZoomPixelRatio: 2
+        });
+
+        async function uploadAndView() {
+            const fileInput = document.getElementById('slide-upload');
+            const file = fileInput.files[0];
+            if (!file) return alert("Please select an .svs file first");
+
+            const filename = file.name;
+            const statusText = document.getElementById('status');
+
+            // 1. Send file to FastAPI
+            const formData = new FormData();
+            formData.append('file', file);
+
+            statusText.innerText = "Uploading massive slide (this might take a moment)...";
+            statusText.style.color = "#e67e22";
+
+            try {
+                await fetch('/upload', { method: 'POST', body: formData });
+
+                // 2. Open the image viewer immediately using the /dzi/ tile server
+                viewer.open(`/dzi/${filename}`);
+
+                // 3. Start polling the terminal's background task status
+                pollStatus(filename);
+
+            } catch (error) {
+                statusText.innerText = "Error uploading file. Check terminal.";
+                statusText.style.color = "#e74c3c";
+                console.error(error);
+            }
+        }
+
+        async function pollStatus(taskId) {
+            const statusText = document.getElementById('status');
+            const interval = setInterval(async () => {
+                try {
+                    const res = await fetch(`/status/${taskId}`);
+                    const data = await res.json();
+
+                    if (data.status === "Complete") {
+                        clearInterval(interval);
+                        statusText.innerText = "Analysis Complete! Check terminal/results folder.";
+                        statusText.style.color = "#2ecc71";
+                    } else {
+                        statusText.innerText = `Status: ${data.status}`;
+                    }
+                } catch (err) {
+                    console.error("Polling error", err);
+                }
+            }, 2000);
+        }
+    </script>
+</body>
+
+</html>

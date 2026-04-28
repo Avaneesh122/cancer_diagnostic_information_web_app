@@ -1,0 +1,31 @@
+web app
+
+input is the svs file
+output should be tissue mask, tumor mask, area of tumor(stats) and other things the pathologist might want
+ 
+
+tumor segmentation
+tissue segmentation
+
+multinucleation and other models as "add-on"
+needs to be modular so that we can add other features/services like multinucleation and other python programs
+needs to be ai agentic and human friendly
+
+trying to market it as SaaS
+
+current state: 2 diff tissue seg. models, users can pick to use A or B
+
+#what will user do while its being uploaded & processed?
+
+should 
+
+sent to remote server for processing
+make it modular
+agentic friendly
+mcp fridenly
+
+opencdragon
+ultra latex yolo
+
+1. needs to design the app and how it would work 
+

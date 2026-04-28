@@ -1,0 +1,59 @@
+{
+    "file_info": {
+        "filename": "TCGA-4P-AA8J-01Z-00-DX1.5B44796F-D099-4076-9CAF-B40C2B83F432",
+        "path": "/group/anantm-g00/smanan3/tcga-ocscc_svs/TCGA-4P-AA8J-01Z-00-DX1.5B44796F-D099-4076-9CAF-B40C2B83F432.svs",
+        "vendor": "aperio",
+        "format": "aperio"
+    },
+    "wsi_properties": {
+        "dimensions": [
+            115536,
+            78440
+        ],
+        "objective_power": 40.0,
+        "mpp_x": 0.2525,
+        "mpp_y": 0.2525,
+        "level_count": 4,
+        "level_dimensions": [
+            [
+                115536,
+                78440
+            ],
+            [
+                28884,
+                19610
+            ],
+            [
+                7221,
+                4902
+            ],
+            [
+                3610,
+                2451
+            ]
+        ],
+        "level_downsamples": [
+            1.0,
+            4.0,
+            16.000815993472052,
+            32.0038480534261
+        ]
+    },
+    "processing_config": {
+        "input_path": "/group/anantm-g00/smanan3/tcga-ocscc_svs/",
+        "uni_dir": "/users/asbhoit/my-scratch/cancer_app/TEPSEG/checkpoints_20x256univ2",
+        "clf_path": "/users/asbhoit/my-scratch/cancer_app/TEPSEG/checkpoints_20x256univ2/best_model.pth",
+        "output_dir": "/users/asbhoit/my-scratch/tepseg_output_batch/",
+        "batch_size": 128,
+        "num_workers": 8,
+        "context_mode": "single",
+        "patch_size": 256,
+        "target_mag": 20.0,
+        "exclude_bright": 235,
+        "process_scale": 0.25,
+        "chaikin_iters": 3,
+        "min_area": 20000,
+        "save_masks": true,
+        "skip_existing": false
+    }
+}

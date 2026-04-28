@@ -1,0 +1,46 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+venv/
+
+# Uploaded slide images (very large)
+uploads/
+*.svs
+*.tiff
+*.tif
+*.ndpi
+*.scn
+*.mrxs
+
+# Large model binary files
+models/*.bin
+models/*.pkl
+models/*.h5
+models/*.pt
+models/*.pth
+checkpoints_20x256univ2/
+*.bin
+
+# Checkpoints and large model weights
+TEPSEG/checkpoints_20x256univ2/
+
+# Data outputs (large HDF5 and generated files)
+data/output/
+*.h5
+
+# Results (generated outputs)
+results/
+
+# Environment / secrets
+.env
+*.env
+
+# uv lock file (uncomment if you don't want to track it)
+# uv.lock
