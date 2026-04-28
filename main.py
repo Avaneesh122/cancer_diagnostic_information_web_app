@@ -59,6 +59,22 @@ def get_tile(slide_name: str, level: int, col: int, row: int, format: str):
     except Exception as e:
         raise HTTPException(status_code=404, detail="Tile not found")
 
+@app.get("/slide/{slide_name}/metadata")
+def get_metadata(slide_name: str):
+    """Returns slide metadata like Microns Per Pixel (MPP) and dimensions for the scalebar and grid."""
+    try:
+        file_path = os.path.join(UPLOAD_DIR, slide_name)
+        slide = openslide.OpenSlide(file_path)
+        mpp_x = slide.properties.get(openslide.PROPERTY_NAME_MPP_X)
+        width, height = slide.dimensions
+        return {
+            "mpp": float(mpp_x) if mpp_x else None,
+            "width": width,
+            "height": height
+        }
+    except Exception as e:
+        return {"mpp": None, "width": 0, "height": 0}
+
 # --- FRONTEND AND PIPELINE ---
 
 @app.get("/", response_class=HTMLResponse)
@@ -70,6 +86,7 @@ async def serve_frontend():
     <meta charset="UTF-8">
     <title>Oral Cancer Pathology Viewer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/usnistgov/OpenSeadragonScalebar@master/openseadragon-scalebar.js"></script>
     <style>
         body { font-family: Arial, sans-serif; background-color: #121212; color: #ffffff; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; }
         #header { padding: 15px; background-color: #1e1e1e; text-align: center; border-bottom: 1px solid #333; }
@@ -80,7 +97,10 @@ async def serve_frontend():
         button:disabled, select:disabled { background-color: #555; cursor: not-allowed; }
         
         .checkbox-container { display: flex; align-items: center; gap: 5px; cursor: pointer; font-weight: bold; }
-        #status { color: #f39c12; font-weight: bold; margin-left: 15px; min-width: 250px; text-align: left; }
+        #status-container { display: flex; flex-direction: column; align-items: flex-start; margin-left: 15px; min-width: 250px; }
+        #status { color: #f39c12; font-weight: bold; text-align: left; margin-bottom: 5px; }
+        #progress-container { display: none; width: 100%; height: 8px; background-color: #333; border-radius: 4px; overflow: hidden; }
+        #progress-bar { width: 0%; height: 100%; background-color: #3498db; transition: width 0.3s ease; }
         
         #viewer-container { position: relative; width: 100%; flex-grow: 1; }
         #openseadragon-viewer { width: 100%; height: 100%; background-color: #000000; }
@@ -113,8 +133,21 @@ async def serve_frontend():
             <input type="checkbox" id="annotationToggle" onchange="toggleAnnotations()" disabled>
             Show Annotations (JSON)
         </label>
+
+        <span style="color: #666;">|</span>
+
+        <select id="gridSelector" onchange="toggleGrid()" disabled>
+            <option value="none">No Grid</option>
+            <option value="50">50µm Grid</option>
+            <option value="100">100µm Grid</option>
+        </select>
         
-        <div id="status">Ready for upload.</div>
+        <div id="status-container">
+            <div id="status">Ready for upload.</div>
+            <div id="progress-container">
+                <div id="progress-bar"></div>
+            </div>
+        </div>
     </div>
 
     <div id="viewer-container">
@@ -137,14 +170,27 @@ async def serve_frontend():
         let currentBaseName = "";
         let originalFileName = "";
         let pollingInterval;
+        let slideMPP = null;
+        let slideWidth = null;
+        let slideHeight = null;
+        const gridOverlayId = "micrometer-grid-overlay";
 
         function changeView() {
             const selectedKey = document.getElementById("viewSelector").value;
+            const isDeepZoom = selectedKey === "deepzoom";
             
-            if (selectedKey === "deepzoom") {
+            if (isDeepZoom) {
                 viewer.open(`/slide/${originalFileName}.dzi`);
             } else if (currentFilePaths[selectedKey]) {
                 viewer.open({ type: 'image', url: currentFilePaths[selectedKey] });
+            }
+
+            // Hide/Show scalebar based on the view
+            if (viewer.scalebarInstance) {
+                const displayStyle = isDeepZoom ? "" : "none";
+                viewer.scalebarInstance.divElt.style.display = displayStyle;
+            } else if (isDeepZoom && originalFileName) {
+                loadScalebar();
             }
 
             // Redraw polygons if toggle is checked after changing views
@@ -159,6 +205,7 @@ async def serve_frontend():
             const uploadBtn = document.getElementById('uploadBtn');
             const viewSelector = document.getElementById('viewSelector');
             const annotationToggle = document.getElementById('annotationToggle');
+            const gridSelector = document.getElementById('gridSelector');
 
             if (fileInput.files.length === 0) {
                 alert("Please select an .svs slide to upload.");
@@ -175,9 +222,16 @@ async def serve_frontend():
 
             statusText.innerText = "Uploading to server...";
             statusText.style.color = "#3498db";
+            
+            const progressContainer = document.getElementById('progress-container');
+            const progressBar = document.getElementById('progress-bar');
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+            
             uploadBtn.disabled = true;
             viewSelector.disabled = true;
             annotationToggle.disabled = true;
+            gridSelector.disabled = true;
             document.getElementById("annotation-overlay").innerHTML = "";
 
             try {
@@ -208,6 +262,9 @@ async def serve_frontend():
                     const data = await res.json();
                     
                     statusText.innerText = data.status;
+                    if (data.progress > 0) {
+                        document.getElementById('progress-bar').style.width = data.progress + '%';
+                    }
 
                     if (data.status.includes("Completed")) {
                         clearInterval(pollingInterval);
@@ -240,11 +297,44 @@ async def serve_frontend():
             viewSelector.disabled = false;
             annotationToggle.disabled = false;
             annotationToggle.checked = false;
+            document.getElementById('gridSelector').disabled = false;
             document.getElementById("annotation-overlay").innerHTML = "";
+            document.getElementById("progress-container").style.display = "none";
 
             // Force dropdown to live deep zoom
             viewSelector.value = "deepzoom";
             changeView();
+        }
+
+        async function loadScalebar() {
+            if (viewer.scalebarInstance) return; // Already loaded
+
+            try {
+                const res = await fetch(`/slide/${originalFileName}/metadata`);
+                const data = await res.json();
+                if (data.mpp) {
+                    slideMPP = data.mpp;
+                    slideWidth = data.width;
+                    slideHeight = data.height;
+
+                    viewer.scalebar({
+                        type: OpenSeadragon.ScalebarType.MICROSCOPY,
+                        pixelsPerMeter: (1 / data.mpp) * 1e6,
+                        minWidth: "100px",
+                        location: OpenSeadragon.ScalebarLocation.BOTTOM_LEFT,
+                        xOffset: 20,
+                        yOffset: 20,
+                        stayInsideImage: false,
+                        color: "black",
+                        fontColor: "black",
+                        backgroundColor: "rgba(255, 255, 255, 0.7)",
+                        fontSize: "medium",
+                        barThickness: 4
+                    });
+                }
+            } catch (e) {
+                console.error("Scalebar metadata load failed", e);
+            }
         }
 
         // --- ANNOTATION ENGINE ---
@@ -276,7 +366,6 @@ async def serve_frontend():
             const tiledImage = viewer.world.getItemAt(0);
             if (!tiledImage) return;
 
-            // Step 1: Format-blind check (handles GeoJSON or simple lists)
             let features = [];
             if (annotationsData.type === "FeatureCollection") {
                 features = annotationsData.features;
@@ -284,19 +373,15 @@ async def serve_frontend():
                 features = annotationsData;
             }
 
-            // Step 2: Loop through and extract coordinates safely
             features.forEach(feature => {
                 let coords = [];
                 
                 if (feature.geometry && feature.geometry.coordinates) {
-                    // GeoJSON format (grabs the outer ring of the polygon)
                     coords = feature.geometry.coordinates[0];
                 } else if (feature.coordinates) {
-                    // Simple list format
                     coords = feature.coordinates;
                 }
 
-                // Step 3: Draw the polygon if we found valid coordinates
                 if (coords && coords.length > 0) {
                     let pointsString = "";
                     coords.forEach(coord => {
@@ -316,6 +401,70 @@ async def serve_frontend():
             });
         }
 
+        function toggleGrid() {
+            const existing = document.getElementById(gridOverlayId);
+            if (existing) {
+                viewer.removeOverlay(existing);
+            }
+
+            const gridValue = document.getElementById("gridSelector").value;
+            if (gridValue === "none") return;
+
+            if (!slideMPP || !slideWidth || !slideHeight) {
+                alert("Slide metadata (MPP and dimensions) not available. Cannot draw accurate grid.");
+                document.getElementById("gridSelector").value = "none";
+                return;
+            }
+
+            const microns = parseInt(gridValue, 10);
+            const physicalWidthMicrons = slideWidth * slideMPP;
+            const gridSpacingViewport = microns / physicalWidthMicrons;
+            const aspectRatio = slideHeight / slideWidth;
+
+            const svgNS = "http://www.w3.org/2000/svg";
+            const svg = document.createElementNS(svgNS, "svg");
+            svg.id = gridOverlayId;
+            svg.setAttribute("width", "100%");
+            svg.setAttribute("height", "100%");
+            svg.setAttribute("preserveAspectRatio", "none");
+            svg.setAttribute("viewBox", `0 0 1 ${aspectRatio}`);
+            
+            // Draw vertical lines
+            for (let x = 0; x <= 1; x += gridSpacingViewport) {
+                const line = document.createElementNS(svgNS, "line");
+                line.setAttribute("x1", x);
+                line.setAttribute("y1", 0);
+                line.setAttribute("x2", x);
+                line.setAttribute("y2", aspectRatio);
+                line.setAttribute("stroke", "rgba(52, 152, 219, 0.6)"); // Light blue, semi-transparent
+                line.setAttribute("stroke-width", "1");
+                line.setAttribute("vector-effect", "non-scaling-stroke");
+                svg.appendChild(line);
+            }
+
+            // Draw horizontal lines
+            for (let y = 0; y <= aspectRatio; y += gridSpacingViewport) {
+                const line = document.createElementNS(svgNS, "line");
+                line.setAttribute("x1", 0);
+                line.setAttribute("y1", y);
+                line.setAttribute("x2", 1);
+                line.setAttribute("y2", y);
+                line.setAttribute("stroke", "rgba(52, 152, 219, 0.6)");
+                line.setAttribute("stroke-width", "1");
+                line.setAttribute("vector-effect", "non-scaling-stroke");
+                svg.appendChild(line);
+            }
+
+            viewer.addOverlay({
+                element: svg,
+                location: new OpenSeadragon.Rect(0, 0, 1, aspectRatio)
+            });
+        }
+
+        viewer.addHandler('open', () => {
+            toggleGrid();
+        });
+
         viewer.addHandler('animation', () => {
             if (document.getElementById("annotationToggle").checked) {
                 drawPolygons();
@@ -329,20 +478,23 @@ async def serve_frontend():
 
 @app.get("/status/{task_id}")
 async def get_status(task_id: str):
-    return {"task_id": task_id, "status": task_status.get(task_id, "Unknown Task ID")}
+    info = task_status.get(task_id, {"status": "Unknown Task ID", "progress": 0})
+    if isinstance(info, str):
+        return {"task_id": task_id, "status": info, "progress": 0}
+    return {"task_id": task_id, "status": info["status"], "progress": info.get("progress", 0)}
 
 @app.post("/upload")
 async def upload_svs(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     task_id = file.filename 
     
-    task_status[task_id] = "Processing started..."
+    task_status[task_id] = {"status": "Uploading...", "progress": 0}
     
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
     except Exception as e:
-        task_status[task_id] = f"Upload failed: {str(e)}"
+        task_status[task_id] = {"status": f"Upload failed: {str(e)}", "progress": 0}
         raise HTTPException(status_code=500, detail="Could not save file.")
 
     background_tasks.add_task(run_tepseg_logic, file_path, file.filename, task_id)
@@ -360,7 +512,7 @@ def run_tepseg_logic(file_path: str, filename: str, task_id: str):
         os.makedirs(nested_output_dir, exist_ok=True)
         
         print("1. Attempting to extract clean thumbnail via OpenSlide...")
-        task_status[task_id] = "Step 1: Extracting clean thumbnail..."
+        task_status[task_id] = {"status": "Step 1: Extracting clean thumbnail...", "progress": 5}
         
         try:
             slide = openslide.OpenSlide(file_path)
@@ -372,7 +524,7 @@ def run_tepseg_logic(file_path: str, filename: str, task_id: str):
             print(f"-> Thumbnail extraction failed (skipping): {e}")
         
         print("2. Starting TEPSEG GPU Pipeline...")
-        task_status[task_id] = "Step 2: Running GPU Pipeline (Check terminal)..."
+        task_status[task_id] = {"status": "Step 2: Running GPU Pipeline...", "progress": 10}
         
         checkpoint_dir = os.path.abspath("TEPSEG/checkpoints_20x256univ2")
         
@@ -386,14 +538,37 @@ def run_tepseg_logic(file_path: str, filename: str, task_id: str):
             "--save_masks"
         ]
         
-        subprocess.run(cmd, check=True)
-        print("3. TEPSEG Pipeline Completed!")
+        import re
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, universal_newlines=True)
         
-        task_status[task_id] = "Completed! Results available in viewer."
+        buffer = ""
+        while True:
+            char = process.stdout.read(1)
+            if not char:
+                break
+            if char == '\r' or char == '\n':
+                line = buffer.strip()
+                buffer = ""
+                if line:
+                    match = re.search(r'(\d+)%\|', line)
+                    if match:
+                        pct = int(match.group(1))
+                        overall_pct = 10 + int(pct * 0.85)  # Scale GPU processing from 10% to 95%
+                        task_status[task_id] = {"status": f"Step 2: GPU Pipeline ({pct}%)...", "progress": overall_pct}
+                    elif "Pipeline finished" in line:
+                        task_status[task_id] = {"status": "Step 3: Finishing up...", "progress": 98}
+            else:
+                buffer += char
+                
+        process.wait()
         
-    except subprocess.CalledProcessError as e:
-        print(f"!!! TEPSEG Subprocess Error: {e}")
-        task_status[task_id] = f"Error: TEPSEG Pipeline Failed."
+        if process.returncode == 0:
+            print("3. TEPSEG Pipeline Completed!")
+            task_status[task_id] = {"status": "Completed! Results available in viewer.", "progress": 100}
+        else:
+            print(f"!!! TEPSEG Subprocess Error (Exit {process.returncode})")
+            task_status[task_id] = {"status": "Error: TEPSEG Pipeline Failed.", "progress": 0}
+        
     except Exception as e:
         print(f"!!! System Error: {e}")
-        task_status[task_id] = f"Error: System Failure."
+        task_status[task_id] = {"status": f"Error: System Failure - {str(e)}", "progress": 0}
