@@ -12,16 +12,18 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
-# result folder path
-results_path = r"C:\Users\asbhoit\Documents\cancer_app\results"
-app.mount("/results", StaticFiles(directory=results_path), name="results")
-
 task_status = {}
 
-UPLOAD_DIR = "uploads"
-RESULT_DIR = "results"
+# Resolve directories relative to this file so the app runs on any OS.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(BASE_DIR, "uploads"))
+RESULT_DIR = os.environ.get("RESULT_DIR", os.path.join(BASE_DIR, "results"))
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
+
+# Serve generated pipeline outputs (masks, overlays, maps) as static files.
+results_path = RESULT_DIR
+app.mount("/results", StaticFiles(directory=results_path), name="results")
 
 # Cache to hold open DeepZoom generators
 slide_cache = {}
