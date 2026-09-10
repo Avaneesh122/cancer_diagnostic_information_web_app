@@ -57,3 +57,22 @@ The application transforms heavy computational processes into a smooth, interact
 ```bash
 git clone --recurse-submodules [https://github.com/Avaneesh122/cancer_diagnostic_information_web_app.git](https://github.com/Avaneesh122/cancer_diagnostic_information_web_app.git)
 cd cancer_diagnostic_information_web_app
+
+2. **Sync dependencies:** 
+This project utilizes `pyproject.toml` and `uv.lock`. Build the environment using Astral's `uv`:
+
+```bash
+uv sync
+```
+
+3. **Configure Model Checkpoints:** 
+Ensure the necessary PyTorch model weights are downloaded. Place the weights inside the `TEPSEG/checkpoints_20x256univ2/` directory (e.g., `pytorch_model.bin`, `best_model.pth`). *Note: Model binaries are excluded from Git due to file size constraints.*
+
+## Running the App
+Start the FastAPI application using the integrated `uv` environment:
+
+```bash
+uv run uvicorn main:app --reload
+```
+
+Once the server initializes, open a web browser and navigate to `http://127.0.0.1:8000`.
