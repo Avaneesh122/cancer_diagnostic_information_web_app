@@ -57,6 +57,7 @@ The application transforms heavy computational processes into a smooth, interact
 ```bash
 git clone --recurse-submodules [https://github.com/Avaneesh122/cancer_diagnostic_information_web_app.git](https://github.com/Avaneesh122/cancer_diagnostic_information_web_app.git)
 cd cancer_diagnostic_information_web_app
+```
 
 2. **Sync dependencies:** 
 This project utilizes `pyproject.toml` and `uv.lock`. Build the environment using Astral's `uv`:
